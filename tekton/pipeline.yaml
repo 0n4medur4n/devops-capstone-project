@@ -15,6 +15,7 @@ spec:
     - name: repo-url
     - name: branch
       default: main
+    - name: build-image
   tasks:
     - name: init
       workspaces:
@@ -23,16 +24,29 @@ spec:
       taskRef:
         name: cleanup
 
-    
+    - name: clone
+      workspaces:
+        - name: output
+          workspace: pipeline-workspace          
+      taskRef:
+        name: git-clone
+      params:
+      - name: url
+        value: $(params.repo-url)
+      - name: revision
+        value: $(params.branch)
+      runAfter:
+        - init
+
     - name: lint
       workspaces:
         - name: source
-          workspace: pipeline-workspace          
+          workspace: pipeline-workspace
       taskRef:
         name: flake8
       params:
       - name: image
-        value: "python:3.8-slim"
+        value: "python:3.9-slim"
       - name: args
         value: ["--count","--max-complexity=10","--max-line-length=127","--statistics"]
       runAfter:
@@ -51,7 +65,7 @@ spec:
         value: "-v --with-spec --spec-color"
       runAfter:
         - clone
-    
+
     - name: build
       workspaces:
         - name: source
@@ -65,4 +79,23 @@ spec:
       runAfter:
         - tests
         - lint
+
+    - name: deploy
+      workspaces:
+        - name: manifest-dir
+          workspace: pipeline-workspace
+      taskRef:
+        name: openshift-client
+        kind: ClusterTask
+      params:
+      - name: SCRIPT
+        value: |
+          echo "Updating manifest..."
+          sed -i "s|IMAGE_NAME_HERE|$(params.build-image)|g" deploy/deployment.yaml
+          cat deploy/deployment.yaml
+          echo "Deploying to OpenShift..."
+          oc apply -f deploy/
+          oc get pods -l app=accounts
+      runAfter:
+        - build
    
